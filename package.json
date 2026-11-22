@@ -1,0 +1,29 @@
+{
+  "name": "tokenwallet-mcp",
+  "version": "1.0.0",
+  "description": "TokenWallet MCP Server for QR pairing and quota reporting across AI clients",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "tokenwallet-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "dev:http": "tsx src/index.ts --http",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "start:http": "node dist/index.js --http",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "qrcode": "^1.5.4",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.0",
+    "@types/qrcode": "^1.5.5",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3"
+  }
+}

@@ -77,8 +77,9 @@ async function startHttp(port: number) {
     res.end(JSON.stringify({ error: 'Not Found. Use /mcp for Streamable HTTP MCP.' }))
   })
 
-  httpServer.listen(port, '0.0.0.0', () => {
-    console.log(`[tokenwallet-mcp] Streamable HTTP listening on http://localhost:${port}/mcp`)
+  const host = process.env.HOST || '0.0.0.0'
+  httpServer.listen(port, host, () => {
+    console.log(`[tokenwallet-mcp] Streamable HTTP listening on http://${host}:${port}/mcp`)
     console.log(`[tokenwallet-mcp] TokenWallet API: ${getApiBaseUrl()}`)
   })
 }

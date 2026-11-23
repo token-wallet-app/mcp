@@ -31,7 +31,8 @@ export interface McpConfig {
   pendingSessions: PendingSession[]
 }
 
-const DEFAULT_API_URL = process.env.TOKENWALLET_API_URL || 'http://localhost:8787/v1'
+const DEFAULT_API_URL =
+  process.env.TOKENWALLET_API_URL || 'https://api.token-wallet.app/v1'
 const CONFIG_DIR = process.env.TOKENWALLET_MCP_HOME || path.join(os.homedir(), '.tokenwallet-mcp')
 const CONFIG_FILE = path.join(CONFIG_DIR, 'config.json')
 

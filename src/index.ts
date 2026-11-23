@@ -37,21 +37,27 @@ async function startHttp(port: number) {
     }
 
     const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`)
-    if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/health')) {
+    const pathname = url.pathname.replace(/\/+$/, '') || '/'
+    const acceptHeader = String(req.headers.accept || '')
+    const isBrowserHealthCheck =
+      req.method === 'GET' &&
+      (pathname === '/health' || (pathname === '/' && !acceptHeader.includes('text/event-stream')))
+
+    if (isBrowserHealthCheck) {
       res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
       res.end(
         JSON.stringify({
           ok: true,
           service: 'tokenwallet-mcp',
           transport: 'streamable-http',
-          mcpEndpoint: '/mcp',
+          mcpEndpoint: '/',
           apiBaseUrl: getApiBaseUrl(),
         }),
       )
       return
     }
 
-    if (url.pathname === '/mcp') {
+    if (pathname === '/' || pathname === '/mcp') {
       try {
         const server = createTokenWalletMcpServer()
         const transport = new StreamableHTTPServerTransport({
@@ -74,7 +80,7 @@ async function startHttp(port: number) {
     }
 
     res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' })
-    res.end(JSON.stringify({ error: 'Not Found. Use /mcp for Streamable HTTP MCP.' }))
+    res.end(JSON.stringify({ error: 'Not Found. Use / or /mcp for Streamable HTTP MCP.' }))
   })
 
   const host = process.env.HOST || '0.0.0.0'

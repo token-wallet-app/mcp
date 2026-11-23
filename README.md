@@ -21,9 +21,9 @@ claude mcp add tokenwallet -- npx -y tokenwallet-mcp
 gemini mcp add tokenwallet npx -y tokenwallet-mcp
 ```
 
-### Desktop & IDE (Cursor / Antigravity / Claude Desktop / Windsurf / Cline)
+### Desktop & IDE (Cursor / Antigravity / Claude Desktop / Windsurf / Cline & more)
 
-Add the following to your client's MCP configuration file:
+Add the following to your client's MCP configuration file (works with any MCP-compatible IDE or AI client):
 
 ```json
 {
@@ -80,9 +80,9 @@ claude mcp add tokenwallet -- npx -y tokenwallet-mcp
 gemini mcp add tokenwallet npx -y tokenwallet-mcp
 ```
 
-#### 桌面端与 IDE（Cursor / Antigravity / Claude Desktop / Windsurf / Cline）
+#### 桌面端与 IDE（Cursor / Antigravity / Claude Desktop / Windsurf / Cline 等）
 
-在对应客户端的 MCP 配置文件中加入：
+在对应客户端的 MCP 配置文件中加入（其他任何支持 MCP 协议的 IDE 或 AI 客户端均可按相同方式配置使用）：
 
 ```json
 {

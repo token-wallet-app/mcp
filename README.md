@@ -8,21 +8,22 @@ Official MCP server for [TokenWallet](https://token-wallet.app) — connect your
 
 ## Installation
 
-### Codex CLI
+### CLI (Codex CLI / Claude Code / Gemini CLI)
 
 ```bash
+# Codex CLI
 codex mcp add tokenwallet -- npx -y tokenwallet-mcp
-```
 
-### Claude Code
-
-```bash
+# Claude Code
 claude mcp add tokenwallet -- npx -y tokenwallet-mcp
+
+# Gemini CLI
+gemini mcp add tokenwallet npx -y tokenwallet-mcp
 ```
 
-### Claude Desktop / Cursor / Windsurf
+### Desktop & IDE (Cursor / Antigravity / Claude Desktop / Windsurf / Cline)
 
-Add the following to your MCP configuration file:
+Add the following to your client's MCP configuration file:
 
 ```json
 {
@@ -66,21 +67,22 @@ Add to your user or workspace `.vscode/mcp.json`:
 
 ### 安装方式
 
-#### Codex CLI
+#### 命令行客户端（Codex CLI / Claude Code / Gemini CLI）
 
 ```bash
+# Codex CLI
 codex mcp add tokenwallet -- npx -y tokenwallet-mcp
-```
 
-#### Claude Code
-
-```bash
+# Claude Code
 claude mcp add tokenwallet -- npx -y tokenwallet-mcp
+
+# Gemini CLI
+gemini mcp add tokenwallet npx -y tokenwallet-mcp
 ```
 
-#### Claude Desktop / Cursor / Windsurf
+#### 桌面端与 IDE（Cursor / Antigravity / Claude Desktop / Windsurf / Cline）
 
-在你的 MCP 配置文件中加入：
+在对应客户端的 MCP 配置文件中加入：
 
 ```json
 {

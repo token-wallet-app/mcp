@@ -4,7 +4,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 
 import { apiSubmitReport } from './api.js'
-import { readLatestCodexQuota } from './codex-reader.js'
+import { collectQuotaForBrand } from './collectors/index.js'
 import { getApiBaseUrl, loadConfig, markConnectionReported } from './config.js'
 import { createTokenWalletMcpServer } from './server.js'
 
@@ -19,25 +19,33 @@ function parseArgs() {
   return { useHttp, port }
 }
 
-function startLocalCodexAutoReporter() {
-  let lastObservedAt = 0
+function startLocalAutoReporter() {
+  const lastFingerprintByCard = new Map<string, string>()
   const tick = async () => {
     try {
-      const snap = readLatestCodexQuota()
-      if (!snap || snap.observedAt <= lastObservedAt) return
       const cfg = loadConfig()
-      const openaiConns = cfg.connections.filter((c) => c.brand === 'openai')
-      if (openaiConns.length === 0) return
+      if (cfg.connections.length === 0) return
       const baseUrl = getApiBaseUrl()
-      for (const conn of openaiConns) {
-        await apiSubmitReport(baseUrl, conn.writeToken, {
-          plan: snap.plan,
-          observedAt: snap.observedAt,
-          meters: snap.meters,
-        })
-        markConnectionReported(conn.cardId, Date.now())
+      const uniqueBrands = Array.from(new Set(cfg.connections.map((c) => c.brand)))
+      for (const brand of uniqueBrands) {
+        const snap = await collectQuotaForBrand(brand)
+        if (!snap || snap.meters.length === 0) continue
+        const sig = JSON.stringify(
+          snap.meters.map((m) => [m.meterKey, m.remaining, m.resetsAt ?? null]),
+        )
+        const matchingConns = cfg.connections.filter((c) => c.brand === brand)
+        for (const conn of matchingConns) {
+          if (lastFingerprintByCard.get(conn.cardId) === sig) continue
+          await apiSubmitReport(baseUrl, conn.writeToken, {
+            plan: snap.plan,
+            accountHint: snap.accountHint,
+            observedAt: snap.observedAt,
+            meters: snap.meters,
+          })
+          markConnectionReported(conn.cardId, Date.now())
+          lastFingerprintByCard.set(conn.cardId, sig)
+        }
       }
-      lastObservedAt = snap.observedAt
     } catch {
       // Ignore transient network errors during background sync
     }
@@ -53,7 +61,7 @@ async function startStdio() {
   const server = createTokenWalletMcpServer()
   const transport = new StdioServerTransport()
   await server.connect(transport)
-  startLocalCodexAutoReporter()
+  startLocalAutoReporter()
   console.error(`[tokenwallet-mcp] stdio ready (API: ${getApiBaseUrl()})`)
 }
 

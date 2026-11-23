@@ -9,7 +9,7 @@ import {
   apiSubmitReport,
   type MeterReportItem,
 } from './api.js'
-import { readLatestCodexQuota } from './codex-reader.js'
+import { collectQuotaForBrand } from './collectors/index.js'
 import {
   getApiBaseUrl,
   loadConfig,
@@ -111,12 +111,12 @@ export function createTokenWalletMcpServer(): McpServer {
         'Generate a QR code and pairing link so the user can scan with the TokenWallet mobile app to bind this AI client and sync token quotas.',
       inputSchema: {
         brand: z
-          .enum(['openai', 'claude', 'gemini', 'openrouter', 'deepseek', 'other'])
+          .enum(['openai', 'claude', 'gemini', 'cursor', 'grok', 'openrouter', 'deepseek', 'other'])
           .default('openai')
-          .describe('Provider brand (use "openai" for ChatGPT, "claude" for Claude, "gemini" for Google AI, "other" for custom)'),
+          .describe('Provider brand (openai, claude, gemini, cursor, grok, openrouter, deepseek, other)'),
         provider: z.string().optional().describe('Custom display name for the provider'),
         nodeLabel: z.string().optional().describe('Friendly name for this client/machine, e.g. "MacBook ChatGPT"'),
-        source: z.string().optional().describe('Client source identifier, e.g. "chatgpt", "codex", "claude-code"'),
+        source: z.string().optional().describe('Client source identifier, e.g. "chatgpt", "codex", "claude-code", "cursor", "gemini-cli"'),
         plan: z.string().optional().describe('Subscription plan name, e.g. "Plus", "Pro", "AI Pro"'),
         accountHint: z.string().optional().describe('Optional masked account hint, e.g. "u***@gmail.com"'),
         meters: z.array(meterSchema).optional().describe('Optional initial quota meters to populate immediately upon scan'),
@@ -124,18 +124,18 @@ export function createTokenWalletMcpServer(): McpServer {
     },
     async (args) => {
       const baseUrl = getApiBaseUrl()
-      const localCodex =
-        args.brand === 'openai' && (!args.meters || args.meters.length === 0)
-          ? readLatestCodexQuota()
+      const localQuota =
+        !args.meters || args.meters.length === 0
+          ? await collectQuotaForBrand(args.brand)
           : null
       const created = await apiCreateMcpSession(baseUrl, {
         brand: args.brand,
         provider: args.provider,
         nodeLabel: args.nodeLabel,
-        source: args.source ?? (localCodex ? 'codex' : 'mcp'),
-        plan: args.plan ?? localCodex?.plan,
-        accountHint: args.accountHint,
-        meters: (args.meters as MeterReportItem[] | undefined) ?? localCodex?.meters,
+        source: args.source ?? localQuota?.source ?? 'mcp',
+        plan: args.plan ?? localQuota?.plan,
+        accountHint: args.accountHint ?? localQuota?.accountHint,
+        meters: (args.meters as MeterReportItem[] | undefined) ?? localQuota?.meters,
       })
 
       const pending: PendingSession = {
@@ -293,72 +293,70 @@ export function createTokenWalletMcpServer(): McpServer {
   )
 
   server.registerTool(
-    'sync_codex_quota',
+    'sync_local_quotas',
     {
-      title: 'Sync Real Local Codex CLI Quota',
+      title: 'Sync Real Local AI Client Quotas',
       description:
-        'Read the latest real 5-hour and weekly rate_limits (with exact reset timestamps) from local ~/.codex/sessions logs and push them to the bound ChatGPT/OpenAI card in TokenWallet.',
+        'Collect real-time remaining quotas from locally installed AI clients (Codex CLI, Claude Code, Cursor, Gemini CLI, Grok/xAI) and push updates to bound TokenWallet cards.',
       inputSchema: {
-        cardId: z.string().optional().describe('Optional target cardId (defaults to bound openai card)'),
+        brand: z
+          .enum(['openai', 'claude', 'cursor', 'gemini', 'grok'])
+          .optional()
+          .describe('Optional specific brand to sync; omit to sync all bound local providers'),
+        cardId: z.string().optional().describe('Optional specific bound cardId'),
       },
     },
-    async ({ cardId }) => {
+    async ({ brand, cardId }) => {
       await syncAllPendingSessions()
-      const snapshot = readLatestCodexQuota()
-      if (!snapshot) {
-        return {
-          isError: true,
-          content: [
-            {
-              type: 'text',
-              text: '未在本机 ~/.codex/sessions 中找到有效的 Codex rate_limits 记录。请确认本 MCP 以本地 stdio 模式运行，且本机已使用过 Codex CLI。',
-            },
-          ],
-        }
-      }
-
       const cfg = loadConfig()
-      const conn =
-        (cardId && cfg.connections.find((c) => c.cardId === cardId)) ||
-        cfg.connections.find((c) => c.brand === 'openai') ||
-        cfg.connections[0]
+      const baseUrl = getApiBaseUrl()
+      const targetBrands = brand
+        ? [brand]
+        : Array.from(new Set(cfg.connections.map((c) => c.brand)))
 
-      if (!conn) {
+      if (targetBrands.length === 0) {
         return {
           isError: true,
           content: [
             {
               type: 'text',
-              text: `已读取本机真实 Codex 额度（${snapshot.meters.map((m) => `${m.label}: ${m.remaining}%`).join('，')}），但尚未绑定 TokenWallet 卡片。请先调用 connect_tokenwallet 扫码绑定。`,
+              text: '尚未绑定任何 TokenWallet 卡片。请先调用 connect_tokenwallet 生成二维码并在手机 App 中扫码绑定。',
             },
           ],
         }
       }
 
-      const baseUrl = getApiBaseUrl()
-      const res = await apiSubmitReport(baseUrl, conn.writeToken, {
-        plan: snapshot.plan,
-        observedAt: snapshot.observedAt,
-        meters: snapshot.meters,
-      })
-      markConnectionReported(conn.cardId, Date.now())
-
-      const details = snapshot.meters
-        .map((m) => {
-          const resetStr = m.resetsAt
-            ? `（重置：${new Date(m.resetsAt).toLocaleString('zh-CN', { hour12: false })}）`
-            : ''
-          return `${m.label} ${m.remaining}%${resetStr}`
+      const lines: string[] = []
+      for (const b of targetBrands) {
+        const snapshot = await collectQuotaForBrand(b)
+        if (!snapshot) {
+          lines.push(`- ${b}: 未检测到本机可用额度数据源`)
+          continue
+        }
+        const conn =
+          (cardId && cfg.connections.find((c) => c.cardId === cardId)) ||
+          cfg.connections.find((c) => c.brand === b)
+        if (!conn) {
+          lines.push(
+            `- ${b}: 已采集到真实额度（${snapshot.meters.map((m) => `${m.label} ${m.remaining}${m.unit ?? ''}`).join('，')}），但尚未绑定卡片`,
+          )
+          continue
+        }
+        const res = await apiSubmitReport(baseUrl, conn.writeToken, {
+          plan: snapshot.plan,
+          accountHint: snapshot.accountHint,
+          observedAt: snapshot.observedAt,
+          meters: snapshot.meters,
         })
-        .join('；')
+        markConnectionReported(conn.cardId, Date.now())
+        const summary = snapshot.meters
+          .map((m) => `${m.label} ${m.remaining}${m.unit ?? ''}`)
+          .join('，')
+        lines.push(`- ${conn.provider} (cardId=${res.cardId}): 已同步 ${summary}`)
+      }
 
       return {
-        content: [
-          {
-            type: 'text',
-            text: `已同步本机真实 Codex 额度到 ${conn.provider}（cardId=${res.cardId}）：${details}`,
-          },
-        ],
+        content: [{ type: 'text', text: lines.join('\n') }],
       }
     },
   )

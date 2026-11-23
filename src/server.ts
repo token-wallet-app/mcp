@@ -1,6 +1,11 @@
+import { createRequire } from 'node:module'
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
 import QRCode from 'qrcode'
 import { z } from 'zod'
+
+const require = createRequire(import.meta.url)
+const pkg = require('../package.json') as { version?: string }
+const SERVER_VERSION = pkg.version || '1.0.1'
 
 import {
   apiCreateMcpSession,
@@ -100,7 +105,7 @@ async function syncAllPendingSessions(): Promise<BoundConnection[]> {
 export function createTokenWalletMcpServer(): McpServer {
   const server = new McpServer({
     name: 'tokenwallet-mcp',
-    version: '1.0.0',
+    version: SERVER_VERSION,
   })
 
   server.registerTool(

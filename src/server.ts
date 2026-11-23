@@ -9,6 +9,7 @@ import {
   apiSubmitReport,
   type MeterReportItem,
 } from './api.js'
+import { readLatestCodexQuota } from './codex-reader.js'
 import {
   getApiBaseUrl,
   loadConfig,
@@ -123,14 +124,18 @@ export function createTokenWalletMcpServer(): McpServer {
     },
     async (args) => {
       const baseUrl = getApiBaseUrl()
+      const localCodex =
+        args.brand === 'openai' && (!args.meters || args.meters.length === 0)
+          ? readLatestCodexQuota()
+          : null
       const created = await apiCreateMcpSession(baseUrl, {
         brand: args.brand,
         provider: args.provider,
         nodeLabel: args.nodeLabel,
-        source: args.source ?? 'mcp',
-        plan: args.plan,
+        source: args.source ?? (localCodex ? 'codex' : 'mcp'),
+        plan: args.plan ?? localCodex?.plan,
         accountHint: args.accountHint,
-        meters: args.meters as MeterReportItem[] | undefined,
+        meters: (args.meters as MeterReportItem[] | undefined) ?? localCodex?.meters,
       })
 
       const pending: PendingSession = {
@@ -281,6 +286,77 @@ export function createTokenWalletMcpServer(): McpServer {
           {
             type: 'text',
             text: `已上报 ${conn.provider}（cardId=${res.cardId}）最新额度，更新字段：${res.updatedMeters.join(', ') || '无'}，服务端版本 rev=${res.revision}。`,
+          },
+        ],
+      }
+    },
+  )
+
+  server.registerTool(
+    'sync_codex_quota',
+    {
+      title: 'Sync Real Local Codex CLI Quota',
+      description:
+        'Read the latest real 5-hour and weekly rate_limits (with exact reset timestamps) from local ~/.codex/sessions logs and push them to the bound ChatGPT/OpenAI card in TokenWallet.',
+      inputSchema: {
+        cardId: z.string().optional().describe('Optional target cardId (defaults to bound openai card)'),
+      },
+    },
+    async ({ cardId }) => {
+      await syncAllPendingSessions()
+      const snapshot = readLatestCodexQuota()
+      if (!snapshot) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: '未在本机 ~/.codex/sessions 中找到有效的 Codex rate_limits 记录。请确认本 MCP 以本地 stdio 模式运行，且本机已使用过 Codex CLI。',
+            },
+          ],
+        }
+      }
+
+      const cfg = loadConfig()
+      const conn =
+        (cardId && cfg.connections.find((c) => c.cardId === cardId)) ||
+        cfg.connections.find((c) => c.brand === 'openai') ||
+        cfg.connections[0]
+
+      if (!conn) {
+        return {
+          isError: true,
+          content: [
+            {
+              type: 'text',
+              text: `已读取本机真实 Codex 额度（${snapshot.meters.map((m) => `${m.label}: ${m.remaining}%`).join('，')}），但尚未绑定 TokenWallet 卡片。请先调用 connect_tokenwallet 扫码绑定。`,
+            },
+          ],
+        }
+      }
+
+      const baseUrl = getApiBaseUrl()
+      const res = await apiSubmitReport(baseUrl, conn.writeToken, {
+        plan: snapshot.plan,
+        observedAt: snapshot.observedAt,
+        meters: snapshot.meters,
+      })
+      markConnectionReported(conn.cardId, Date.now())
+
+      const details = snapshot.meters
+        .map((m) => {
+          const resetStr = m.resetsAt
+            ? `（重置：${new Date(m.resetsAt).toLocaleString('zh-CN', { hour12: false })}）`
+            : ''
+          return `${m.label} ${m.remaining}%${resetStr}`
+        })
+        .join('；')
+
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `已同步本机真实 Codex 额度到 ${conn.provider}（cardId=${res.cardId}）：${details}`,
           },
         ],
       }

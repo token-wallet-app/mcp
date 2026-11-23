@@ -3,7 +3,9 @@ import http from 'node:http'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 
-import { getApiBaseUrl } from './config.js'
+import { apiSubmitReport } from './api.js'
+import { readLatestCodexQuota } from './codex-reader.js'
+import { getApiBaseUrl, loadConfig, markConnectionReported } from './config.js'
 import { createTokenWalletMcpServer } from './server.js'
 
 function parseArgs() {
@@ -17,10 +19,41 @@ function parseArgs() {
   return { useHttp, port }
 }
 
+function startLocalCodexAutoReporter() {
+  let lastObservedAt = 0
+  const tick = async () => {
+    try {
+      const snap = readLatestCodexQuota()
+      if (!snap || snap.observedAt <= lastObservedAt) return
+      const cfg = loadConfig()
+      const openaiConns = cfg.connections.filter((c) => c.brand === 'openai')
+      if (openaiConns.length === 0) return
+      const baseUrl = getApiBaseUrl()
+      for (const conn of openaiConns) {
+        await apiSubmitReport(baseUrl, conn.writeToken, {
+          plan: snap.plan,
+          observedAt: snap.observedAt,
+          meters: snap.meters,
+        })
+        markConnectionReported(conn.cardId, Date.now())
+      }
+      lastObservedAt = snap.observedAt
+    } catch {
+      // Ignore transient network errors during background sync
+    }
+  }
+  void tick()
+  const timer = setInterval(() => {
+    void tick()
+  }, 60_000)
+  timer.unref()
+}
+
 async function startStdio() {
   const server = createTokenWalletMcpServer()
   const transport = new StdioServerTransport()
   await server.connect(transport)
+  startLocalCodexAutoReporter()
   console.error(`[tokenwallet-mcp] stdio ready (API: ${getApiBaseUrl()})`)
 }
 
